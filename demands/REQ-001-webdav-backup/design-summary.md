@@ -126,20 +126,38 @@
 4. 把待上传文件加入 UploadQueue，按 chunk 4MB 切分
 ```
 
-### 4.2 断点续传
+### 4.2 断点续传（修订版 — 2026-09-16 实证修订）
+
+> **修订背景**：原计划用 HTTP `Content-Range: bytes=x-y` 做服务端续传。
+> 实测后发现 **OpenList WebDAV 完全忽略 PUT Content-Range 头**（无论 10MB 还是 1KB 文件都以整文件覆盖语义处理）。
+> 实测报告：`feature-REQ-001/.docs/openlist-compat.md`
 
 ```
-PUT /dav/photos/IMG_001.jpg HTTP/1.1
-Content-Type: image/jpeg
-Content-Range: bytes 4194304-8388607/12582912
+状态机（每次上传前先 HEAD 探测）：
+  head = HEAD(remote_path)
+  server_len = head.ContentLength
 
-[4MB chunk data]
+  if server_len == 0:
+    # 服务端空 → 第一次上传 → PUT 整文件（不带 Content-Range）
+    PUT 整文件
+  elif server_len == total:
+    # 服务端已有完整文件 → 跳过
+    skip
+  elif server_len < total:
+    # 服务端有不完整数据 → OpenList 不支持追加 → 重传整文件覆盖
+    # 网络开销 = 完整上传；但客户端体验是"断点恢复"
+    PUT 整文件
+  else:
+    # 服务端字节数 > 本地（理论上不应发生） → 跳过 + 警告
+    跳过 + 警告
 
-→ 续传前：
-HEAD /dav/photos/IMG_001.jpg
-→ 服务器返回 Content-Range: bytes 0-4194303/12582912
-→ 客户端从 4194304 字节开始续传
+中断恢复：
+  - 上传过程中 App 被杀 / 网络断开 → 客户端本地状态保留"已上传 N%"
+  - 下次启动 → 按上述状态机决定：跳过 / 重传整文件
+  - App 内显式提示："OpenList 不支持服务端续传，断点恢复会重传整个文件"
 ```
+
+**对 AC-07 的影响**：业务上"成功"（文件最终上传完整），但用户体验是"又传了一次"。必须在 App 内告知用户此限制。
 
 ### 4.3 失败重试（指数退避）
 
@@ -162,7 +180,12 @@ status = 'failed'
 [network change to online]   ─┘
 ```
 
-## 5. 模块清单（对应代码目录）
+## 5. 补充文档（Dev 参考）
+
+- `feature-REQ-001/.docs/api-survey.md` — HarmonyOS 4.2 与 NEXT 双平台 API 差异调研
+- `feature-REQ-001/.docs/openlist-compat.md` — OpenList WebDAV 兼容性实测报告（含 10 步验证）
+
+## 6. 待解决问题（派 Dev 前由 explore / Dev 确认）
 
 ```
 entry/src/main/ets/
