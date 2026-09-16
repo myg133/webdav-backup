@@ -1,0 +1,4 @@
+# demand 工作分支 - 需求管理
+.local/
+*.tmp
+.DS_Store
