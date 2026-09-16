@@ -6,3 +6,5 @@ dist/
 .idea/
 .vscode/
 *.log
+scripts/integration-result.json
+.feature/tests/_*.ts

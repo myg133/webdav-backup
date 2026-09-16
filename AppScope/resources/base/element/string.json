@@ -1,0 +1,6 @@
+{
+  "string": [
+    { "name": "app_name", "value": "WebDAV 备份" },
+    { "name": "app_description", "value": "把鸿蒙相册和目录安全备份到自建 WebDAV（OpenList 兼容）。" }
+  ]
+}

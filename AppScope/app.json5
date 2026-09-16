@@ -1,0 +1,14 @@
+{
+  "app": {
+    "bundleName": "com.workstation.webdavbackup",
+    "vendor": "workstation",
+    "versionCode": 1,
+    "versionName": "0.1.0",
+    "icon": "$media:app_icon",
+    "minAPIVersion": 9,
+    "targetAPIVersion": 12,
+    "apiReleaseType": "Release",
+    "compileSdkVersion": 12,
+    "debuggable": false
+  }
+}

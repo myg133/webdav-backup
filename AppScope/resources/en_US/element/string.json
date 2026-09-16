@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<languageresource>
+  <element name="app_name" isjson="true">
+    <value><![CDATA[WebDAV Backup]]></value>
+  </element>
+  <element name="app_description" isjson="true">
+    <value><![CDATA[Back up your HarmonyOS photos and folders to your own WebDAV server (OpenList compatible).]]></value>
+  </element>
+</languageresource>

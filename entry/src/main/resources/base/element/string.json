@@ -1,0 +1,6 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "WebDAV 备份入口模块" },
+    { "name": "EntryAbility_desc", "value": "WebDAV 备份主入口" }
+  ]
+}
