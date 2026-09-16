@@ -1,0 +1,11 @@
+# develop 工作分支 - 业务代码工作区
+.local/
+node_modules/
+build/
+dist/
+*.log
+.idea/
+.vscode/
+.gradle/
+build/
+*.iml
