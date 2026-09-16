@@ -1,0 +1,17 @@
+# workspace 分支白名单防御机制
+# 目的：workspace 分支只跟踪 README.md + .gitignore，
+# 屏蔽所有第一层子目录（worktree 都在第一层）。
+
+# 1. 忽略所有
+*
+
+# 2. 不忽略目录（让白名单生效）
+!*/
+
+# 3. 显式白名单：workspace 分支只跟踪这两个文件
+!.gitignore
+!README.md
+
+# 4. 屏蔽所有第一层子目录（worktree 都在第一层）
+#    防御机制：即使 git add . 也无法 add worktree 内部文件
+/*/
