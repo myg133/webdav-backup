@@ -1,0 +1,7 @@
+# deploy 工作分支 - 部署配置
+.local/
+*.tmp
+.DS_Store
+secrets/
+.env
+!.env.*
