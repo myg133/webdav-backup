@@ -5,14 +5,17 @@
   "worktree": "feature-REQ-001",
   "assigned_at": "2026-09-16T16:20:00+08:00",
   "assigned_by": "ba-Michael-WorkStation-34576-20260916-155002",
-  "status": "explore-pending",
-  "next_step": "explore-agent: 摸鸿蒙 4.2/NEXT API + OpenList 大文件行为",
+  "status": "dev-complete-pending-qa",
+  "next_step": "qa-agent: Pre-merge 审核（DevEco NEXT + 4.2 双平台真机 + 集成测试）",
   "linked_demand_path": "../BA/demands/REQ-001-webdav-backup/",
   "deliverables": [
-    "ArkTS 源码（pages/, domain/, data/, infra/）",
-    "单元测试与集成测试",
+    "ArkTS 源码（pages/, domain/, data/, infra/, mainability/）",
+    "AppScope 配置 + module.json5 + build-profile.json5",
+    "单元测试（4 文件，15 assertion 全绿）+ Hypium 测试桩",
+    "集成测试脚本（scripts/integration-test.ps1，12/12 全绿）",
     "CHANGELOG.md",
-    ".feature/traceability.md（验收追溯）",
-    ".feature/verification-report.md（自验证报告）"
+    ".feature/traceability.md（11 AC + 4 NFR 追溯表）",
+    ".feature/verification-report.md（自验证报告）",
+    ".feature/known-issues.md（未实测 API + QA 验证步骤）"
   ]
 }
