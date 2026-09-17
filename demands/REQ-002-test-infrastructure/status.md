@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-**状态**: 待验证
+**状态**: 已验证
 
 ## 状态历史
 
@@ -11,7 +11,8 @@
 | 2026-09-17 | 草稿 | 创建需求文档与验收标准 |
 | 2026-09-17 | 已评审 | 用户评审通过；范围锁定 F1-F6 |
 | 2026-09-17 | 已就绪 | 准备派 Dev Agent |
-| 2026-09-17 | 待验证 | Dev 完成（6 个 commit 含 1 个文案修正）；BA 独立验证 15/15 单测 + 17/17 集成测试 + CI 一键跑全绿 |
+| 2026-09-17 | 待验证 | Dev 完成（6 commit）；BA 接管收尾（traceability + verification + 调度表） |
+| 2026-09-17 | 已验证 | QA Pre-merge 审核 PASS（VERDICT: PASS with 2 ⚠️ 非阻断） |
 
 ## 责任信息
 
@@ -20,47 +21,48 @@
 - 优先级: P1
 - BA Agent Session: ba-Michael-WorkStation-34576-20260916-155002
 
-## Dev Agent 交付摘要
+## QA 审核摘要
 
-### 代码与文档
+**VERDICT: PASS**
 
-- **5 个 Dev commit + 1 个 BA 接管 commit** 已落 develop 分支
-- 完整覆盖 F1-F6：5 Hypium 测试 + checklist + CI 脚本 + QA 模板 + 归档规范 + 集成测试加固
-- 关键约束已遵守：
-  - Hypium 标准 API（`@ohos/hypium` describe/it/expect）
-  - run-tests 双版本（ps1 + sh）
-  - 归档目录 `.local/qa-runs/<ts>/`
-  - .gitignore 增加 `.local/`
-  - 集成测试 T13-T16 加固异常路径
+### 硬核验证（QA 复跑 + BA 独立验证）
 
-### 测试结果（BA 独立验证）
+| 项 | 期望 | 实际 | 结论 |
+|----|------|------|------|
+| 单测 | 15/15 | 15/15 | ✅ |
+| 集成 | 17/17 | 17/17 | ✅ |
+| run-tests.ps1 端到端 | 退出码 0 | 退出码 0，~18s，8 文件归档 | ✅ |
+| run-tests.sh 等价性 | 等价 | 等价（仅参数语法风格差异） | ✅ |
+| -SkipIntegration | 跳过 + 退出码 0 | 跳过 + 退出码 0 | ✅ |
+| .gitignore 双路径 | 都 ignore | 都 ignore | ✅ |
+| F6 T13-T16 加固 | 4 项 PASS | 4 项 PASS | ✅ |
+| qa-checklist 覆盖 | 11 AC + 4 NFR | 15 节齐全 | ✅ |
+| qa-report-template 字段 | 完整 | 完整 | ✅ |
+| Hypium API 形态 | describe/it 合规 | 5 文件 + 16 个 it() 合规 | ✅ |
 
-| 测试 | Dev 自报 | BA 实测 | 结论 |
-|------|---------|--------|------|
-| 单元测试（Node 跑 ArkTS 等价 TS）| 15/15 ✅ | 15/15 ✅ | 通过 |
-| 集成测试（OpenList）| 17/17 ✅ | 17/17 ✅ | 通过 |
-| run-tests.ps1 端到端 | 退出码 0，~16s | 退出码 0，~16s | 通过 |
-| 归档目录自动创建 | ✅ | ✅ | 通过 |
-| .local/ 被 .gitignore 忽略 | ✅ | ✅ | 通过 |
+### AC 评级
 
-### Dev 阶段问题与 BA 接管
+- ✅ 通过：4 条 AC（AC-02 / AC-03 / AC-04 / AC-05 / AC-06）+ 2 条 NFR（NFR-01 / NFR-02）
+- ⚠️ 有保留：1 条 AC（AC-01 占位断言）+ 1 条 NFR（NFR-03 容器无 DevEco）—— **同一根因**，非阻断
 
-- Dev 在 120 步预算耗尽，traceability + verification + dispatch/sprint 未更新
-- BA 接管完成：写 traceability.md + verification-report.md + 更新 dispatch/req-registry.md + sprint/current.md
-- BA 清理 .feature/tests/break-test.js（一次性调试产物）
-- 保留 .feature/tests/lint-ets.js + lint-ps1.ps1 + smoke-ps1.ps1（untracked，不污染）
+### 已知项（不阻断 merge，二期跟进）
+
+详见 `BA/demands/REQ-002-test-infrastructure/qa-known-issues.md`：
+- K-01: Hypium 断言占位（待 REQ-003 DevEco 实跑补强）
+- K-02: 容器无法验 Hypium 真实跑（DevEco 限制）
+- K-03: Dev traceability 写"12 it()" 实际 16（计数偏差）
+- K-04: brief 写"9 文件"实际 8（计数笔误）
+- K-05: Hypium 占位是设计预期（待 QA DevEco 实跑补强）
+- K-06: .feature/tests/ 有调试残留脚本（untracked，保留备用）
 
 ## 下一步
 
-1. 派 QA Agent 做 Pre-merge 审核
-2. QA 通过 → 状态 → "已验证" → 通知完成
-3. 合入 develop（实际已经是 dev 工作流，commit 直接在 develop 上）
+1. **合并 REQ-002 已完成**（实际已经是 dev 工作流，commit 直接在 develop 上）
+2. 推进 REQ-003（真机回归）或回到收尾 sprint / 启动新功能
 
-## 派单下一步
+## 派单下一步（你来定）
 
-QA 子 agent 工作区与 Dev 一致（develop 分支），重点审核：
-- F1 Hypium 测试断言强度（占位 → 真实 UI 断言）
-- F3 run-tests.ps1 / run-tests.sh 行为一致性
-- F5 .gitignore 完整性
-- F6 T13-T16 异常路径测试覆盖
-- traceability + verification 一致性
+按 sprint current.md，REQ-002 已完成。继续：
+- 启动 REQ-003（真机回归，依据本需求交付的 qa-checklist.md）
+- 收尾 Sprint 1（retrospective + 状态流转）
+- 启动新功能（REQ-00X 候选）
