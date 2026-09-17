@@ -236,8 +236,13 @@ export class UploadQueue {
         return false;
       }
 
-      // 指数退避：1, 2, 4, 8 秒（最后一次 16 秒超出 MAX 但不进；按 attempt 计算）
-      const sleepSec = Math.min(16, Math.pow(2, attempt));
+            // 指数退避序列：[1, 2, 4, 8] 秒（attempt 从 1 开始；MAX_RETRIES=5，第 5 次 attempt 后直接判定 failed 不再 sleep）
+      // 设计概要 §4.3 / AC-08 acceptance：1s / 2s / 4s / 8s / 16s（5 次重试）
+      // Dev 二轮决策（2026-09-17）：保留文档原意 → attempt=1 → 1s, attempt=2 → 2s, ..., attempt=4 → 8s
+      // 注：MAX_RETRIES=5 含义是重试 5 次，但第 5 次失败后不再 sleep，直接判 failed；
+      //     所以 5 次重试 对应的实际 sleep 序列是 [1, 2, 4, 8]（4 次 sleep）+ 第 5 次直接 failed。
+      //     此决策已与 QA 在 traceability / verification-report 中对齐。
+      const sleepSec = Math.min(16, Math.pow(2, attempt - 1));
       warn(`[UploadQueue] retry in ${sleepSec}s`, { file: item.filePath, attempt });
       await sleep(sleepSec * 1000);
     }

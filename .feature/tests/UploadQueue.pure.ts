@@ -101,7 +101,10 @@ export class PureUploadQueue {
         return 'failed';
       }
 
-      const sleepSec = Math.min(16, Math.pow(2, attempt));
+      // 指数退避序列：[1, 2, 4, 8] 秒（attempt 从 1 开始；MAX_RETRIES=5，第 5 次 attempt 后直接判定 failed 不再 sleep）
+      // 设计概要 §4.3 / AC-08 acceptance：1s / 2s / 4s / 8s / 16s（5 次重试）
+      // Dev 二轮决策（2026-09-17）：保留文档原意 → attempt=1 → 1s, attempt=2 → 2s, ..., attempt=4 → 8s
+      const sleepSec = Math.min(16, Math.pow(2, attempt - 1));
       this.emit({ type: 'retry-scheduled', item, attempt, sleepSec });
     }
 
