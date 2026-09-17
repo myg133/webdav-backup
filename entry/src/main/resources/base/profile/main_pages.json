@@ -1,0 +1,9 @@
+{
+  "src": [
+    "pages/IndexPage",
+    "pages/EndpointsPage",
+    "pages/TasksPage",
+    "pages/HistoryPage",
+    "pages/PreviewPage"
+  ]
+}

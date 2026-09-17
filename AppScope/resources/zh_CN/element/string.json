@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<languageresource>
+  <element name="app_name" isjson="true">
+    <value><![CDATA[WebDAV 备份]]></value>
+  </element>
+  <element name="app_description" isjson="true">
+    <value><![CDATA[把鸿蒙相册和目录安全备份到自建 WebDAV（OpenList 兼容）。]]></value>
+  </element>
+</languageresource>

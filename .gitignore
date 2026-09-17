@@ -1,11 +1,10 @@
-# develop 工作分支 - 业务代码工作区
+# feature worktree - REQ-001
 .local/
 node_modules/
 build/
 dist/
-*.log
 .idea/
 .vscode/
-.gradle/
-build/
-*.iml
+*.log
+scripts/integration-result.json
+.feature/tests/_*.ts
