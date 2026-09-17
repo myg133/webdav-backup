@@ -1,0 +1,47 @@
+name: Tests
+
+on:
+  push:
+    branches: [develop, main, 'feature/*']
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install PowerShell
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget apt-transport-https software-properties-common
+          wget -q https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo apt-get install -y powershell
+
+      - name: Unit tests
+        run: |
+          cd code
+          node --experimental-strip-types .feature/tests/run-all-tests.ts
+
+      - name: Integration tests
+        if: env.RUN_INTEGRATION == 'true'
+        env:
+          RUN_INTEGRATION: ${{ secrets.RUN_INTEGRATION || 'false' }}
+        run: |
+          cd code
+          pwsh scripts/integration-test.ps1
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: code/.local/qa-runs/
+          retention-days: 14

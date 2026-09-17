@@ -3,6 +3,10 @@
 工作分支：`develop`
 默认工作区：`code/`（仓库根平铺）
 
+## CI 状态
+
+[![Tests](https://github.com/myg133/webdav-backup/actions/workflows/test.yml/badge.svg)](https://github.com/myg133/webdav-backup/actions/workflows/test.yml)
+
 ## 包含内容
 
 本分支已合并 REQ-001：WebDAV 备份客户端 MVP（鸿蒙 4.2 + NEXT 双平台）。
