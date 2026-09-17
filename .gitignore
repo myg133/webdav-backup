@@ -1,4 +1,5 @@
 # feature worktree - REQ-001
+# REQ-002 F5: 测试结果归档（每次跑自动生成，不进 git）
 .local/
 node_modules/
 build/
