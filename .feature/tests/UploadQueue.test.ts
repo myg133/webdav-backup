@@ -48,11 +48,12 @@ test('503 retry: 3 fails then success -> succeeded after 3 retries', async () =>
   if (r.succeeded !== 1) throw new Error(`expected 1 succeeded, got ${r.succeeded}`);
   const retries = events.filter((e) => e.type === 'retry-scheduled');
   if (retries.length !== 3) throw new Error(`expected 3 retries, got ${retries.length}`);
-  // 设计概要 §4.3 公式：sleep(2^attempt)，attempt 从 1 开始 → 2, 4, 8, 16, 32
-  // 需求原文要求 "1s / 2s / 4s / 8s / 16s"，但代码以公式为准（attempt=1 即首次重试）
-  if (retries[0].sleepSec !== 2) throw new Error(`first backoff should be 2s, got ${retries[0].sleepSec}`);
-  if (retries[1].sleepSec !== 4) throw new Error(`second backoff should be 4s, got ${retries[1].sleepSec}`);
-  if (retries[2].sleepSec !== 8) throw new Error(`third backoff should be 8s, got ${retries[2].sleepSec}`);
+  // 设计概要 §4.3 公式：sleep(2^(attempt-1))，attempt 从 1 开始 → 1, 2, 4, 8 秒
+  // 需求原文 AC-08 acceptance：1s / 2s / 4s / 8s / 16s（5 次重试）
+  // Dev 二轮（2026-09-17）：保留文档原意，采用方案 A：Math.min(16, Math.pow(2, attempt - 1))
+  if (retries[0].sleepSec !== 1) throw new Error(`first backoff should be 1s, got ${retries[0].sleepSec}`);
+  if (retries[1].sleepSec !== 2) throw new Error(`second backoff should be 2s, got ${retries[1].sleepSec}`);
+  if (retries[2].sleepSec !== 4) throw new Error(`third backoff should be 4s, got ${retries[2].sleepSec}`);
 });
 
 test('always fail: 5 retries -> failed', async () => {
@@ -85,11 +86,11 @@ test('two items, mix success and fail', async () => {
   if (r.succeeded !== 2) throw new Error(`expected 2 succeeded, got ${r.succeeded}`);
 });
 
-test('exponential backoff sequence is [2,4,8,16] (2^attempt)', () => {
+test('exponential backoff sequence is [1,2,4,8] (2^(attempt-1))', () => {
   // 设计概要 §4.3：attempt 从 1 开始计数（首次重试）。sleep = 2^attempt
-  const expected = [2, 4, 8, 16];
+  const expected = [1, 2, 4, 8];
   for (let i = 1; i <= 4; i++) {
-    const sleepSec = Math.min(16, Math.pow(2, i));
+    const sleepSec = Math.min(16, Math.pow(2, i - 1));
     if (sleepSec !== expected[i - 1]) throw new Error(`attempt ${i}: expected ${expected[i - 1]}, got ${sleepSec}`);
   }
 });

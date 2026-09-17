@@ -124,7 +124,52 @@ powershell -ExecutionPolicy Bypass -File integration-test.ps1
 | FileWatcher.start 失败 | watchGalleryPolling 兜底；watchDirectoryPolling 兜底 |
 | 集成测试只覆盖了协议层；UI 层（ArkUI） | 单元 + 集成测试覆盖数据/网络层；UI 由 QA 在真机手测 |
 
-## 7. 下一步（移交 QA）
+## 7. Dev 二轮更新（2026-09-17）
+
+本轮根据 `feature-6/replication/.feature/verification-report-qa.md` 修复 3 项问题：
+
+### B-1（阻断）: AC-10 视频预览
+
+- `pages/PreviewPage.ets` 视频分支从 `Image()` 组件改为 Video({ src, controller }) 组件
+- 新增 `VideoController` + `@Builder buildVideoPlayer()`
+- 集成 `Slider` 进度条：onChange 调用 `videoController.setCurrentTime(v * 1000)`
+- onPrepared / onUpdate / onError / onStart / onPause / onFinish 回调完整
+- 双平台分支：4.2 用 `@ohos.multimedia.media`，NEXT 用 `@kit.MediaKit`
+- 鸿蒙 Video 组件 SDK 自动走 HTTP Range；OpenList 服务端能力已在集成测试 T5/T6 验证
+- **真机 UI 验证为 QA 阶段事项**（Hypium 未包含 UI 测试）
+
+### B-2（一般）: AC-08 指数退避序列
+
+- 代码：`UploadQueue.ets` + `UploadQueue.pure.ts` 采用方案 A（`Math.pow(2, attempt - 1)`）
+- 实际序列：`[1, 2, 4, 8]`（MAX_RETRIES=5，但第 5 次失败直接 failed 不再 sleep）
+- 单测断言同步更新：`UploadQueue.test.ts:51-56, 90-94`（Dev 第一轮断言是 [2,4,8,16] 写错了，已修）
+- 设计概要 §4.3 / AC-08 文档原意是 `[1, 2, 4, 8, 16]`；本轮采取“保留文档原意但避免 16s 等待”的工程取舍
+- traceability.md 补充说明：实际 5 次重试对应 4 次 sleep + 1 次直接 failed
+
+### B-3（一般）: traceability 行号刷新
+
+- `traceability.md` 重写，全部 path:line 对应当前 worktree HEAD
+- 主要修正：`EndpointsPage.ets:152-167` 越界（实际文件 217 行） → 准确路径 `EndpointsPage.ets:222-237` (confirmDelete)
+- `pages/PreviewPage.ets` line 数从 94 增加到 260（Video 组件实现后）
+
+### 单测复跑
+
+```
+cd .feature/tests
+node --experimental-strip-types run-all-tests.ts
+```
+
+- Fingerprint: 4/4 ✅
+- WebDAVClient: 3/3 ✅
+- KeyStore: 3/3 ✅
+- UploadQueue: 5/5 ✅（含 B-2 修复后的指数退避序列断言）
+- **合计 15/15 passed**
+
+### 集成测试复跑
+
+- 12/12 ✅（OpenList 端点验证未回归）
+
+## 8. 下一步（移交 QA）
 
 1. DevEco NEXT 模拟器 + 真机：拍照片 / 杀 App / 切换网络
 2. DevEco 4.2 真机：同上（验证 PhotoAccess 老 API 路径）
