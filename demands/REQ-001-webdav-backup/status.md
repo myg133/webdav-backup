@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-**状态**: 待验证
+**状态**: 已退回
 
 ## 状态历史
 
@@ -12,7 +12,8 @@
 | 2026-09-16 | 已评审 | WebDAV 端点验证通过；push 到 origin |
 | 2026-09-16 | 已就绪 | 创建 feature-REQ-001 worktree；派 explore |
 | 2026-09-16 | 进行中 | explore 完成；AC-07 修订；Dev Agent 接单 |
-| 2026-09-16 | 待验证 | Dev Agent 完成（VERDICT: PASS）；BA 独立验证 15/15 单测 + 12/12 集成测试全绿 |
+| 2026-09-16 | 待验证 | Dev 完成；BA 独立验证 15/15 单测 + 12/12 集成测试全绿 |
+| 2026-09-17 | 已退回 | QA 审核 FAIL：AC-10 视频预览未实现（阻断）；AC-08 序列偏差；traceability 行号偏差 |
 
 ## 责任信息
 
@@ -21,55 +22,46 @@
 - 优先级: P0
 - BA Agent Session: ba-Michael-WorkStation-34576-20260916-155002
 
-## Dev Agent 交付摘要
+## 退回原因（来自 QA 报告）
 
-### 代码与文档
+详见 `feature-REQ-001/.feature/verification-report-qa.md`。
 
-- **55 个 tracked 文件**已 commit 在 `feature/REQ-001` 分支（2 个新 commit）
-- 完整覆盖 11 条 AC + 4 条 NFR
-- 关键约束已遵守：
-  - 代码层 grep "method: 'DELETE'/'MKCOL'" → **0 命中**
-  - 不实现 PUT Content-Range 续传，改为"重传整文件"
-  - 不调用 MKCOL（PUT 隐式建父目录）
-  - KeyStore HUKS 双平台分支 + fallback
-  - `isNext` 运行时分支贯穿
+### 阻断项
 
-### 测试结果（BA 独立验证）
+| # | 阻断内容 | 必须修复 |
+|---|---------|---------|
+| B-1 | **AC-10 视频预览进度条拖动未实现** | PreviewPage.ets:75-82 用 `Image()` 而非 `Video()` 组件，AC-10 明文要求"进度条可拖动" |
 
-| 测试 | Dev 自报 | BA 实测 | 结论 |
-|------|---------|--------|------|
-| 单元测试（Node） | 15/15 ✅ | 15/15 ✅ | 通过 |
-| 集成测试（真实 OpenList） | 12/12 ✅ | 12/12 ✅（两次跑都通过） | 通过 |
-| grep DELETE | 0 | 0 | 通过 |
-| grep MKCOL | 0 | 0 | 通过 |
-| traceability.md | ✅ 完整 | ✅ 11 AC + 4 NFR | 通过 |
-| verification-report.md | ✅ 完整 | ✅ 自评覆盖 | 通过 |
-| known-issues.md | ✅ | ✅ 4 个未实测项 | 通过 |
+### 建议修复（可一并处理）
 
-### 已知未实测项（需 QA 真机）
+| # | 内容 | 选择 |
+|---|------|------|
+| B-2 | **AC-08 指数退避序列偏差** | Dev 选一个：(a) 改代码 `Math.pow(2, attempt-1)` 对齐文档 [1,2,4,8,16]；或 (b) 更新 design-summary §4.3 + AC-08 接受代码现状 [2,4,8,16,16] |
+| B-3 | traceability.md 多处行号偏差 + 1 处越界 | Dev 重跑 wc -l 刷新 path:line |
 
-详见 `feature-REQ-001/.feature/known-issues.md`：
+### 放行条件（Dev 修复后可流转到"已验证"）
 
-- K-1: HUKS 真加密路径（dev 模拟器无 HUKS，用了 fallback）
-- K-2: PhotoAccess 实时监听延迟/漏报率
-- K-3: fs.watch 目录监听可靠性
-- K-4: WorkScheduler 在 NEXT 的实际调度行为
-- + UI 层真机手测、hvigorw 本地构建未跑（容器无 DevEco Studio）
+- [ ] B-1 修复（AC-10 视频预览）
+- [ ] B-2 决策（Dev 选 a 或 b）
+- [ ] B-3 traceability 行号刷新
 
-## 下一步
+### QA 追加 known-issues（已写入 `qa-known-issues.md`）
 
-1. **派 QA Agent** 做 Pre-merge 审核
-2. QA 通过 → 状态 →"已验证" → 通知 Dev 创建 PR 到 develop
-3. QA 不通过 → 状态 →"已退回"（附原因）
+- Q-1: PreviewPage 视频分支未实现 Video 组件（同 B-1）
+- Q-2: `@ohos.net.http` 双平台 createHttp 行为未实测
+- Q-3: 指数退避序列偏差（同 B-2）
+- Q-4: traceability.md 行号偏差（同 B-3）
 
 ## 派单下一步
 
-Dev 已完成。下一步是 **QA 子 agent** 接管 Pre-merge 审核。QA 工作规范见 `skills/agent-workspace/SKILL.md` 第四部分。
+派 Dev Agent（**第二轮**）修复上述问题，重点：
+1. 用鸿蒙 `Video` 组件 + AVPlayer 实现 AC-10 视频预览（参考 api-survey.md §6 模板）
+2. 同步修复 AC-08 序列 + traceability 行号
 
-QA 工作区与 Dev 一致（`feature-REQ-001/`），重点审核：
-- AC-09 代码层合规（grep DELETE = 0）
-- AC-07 重传策略实现（UploadQueue.runOne 状态机）
-- AC-02 KeyStore 双平台分支
-- 设计概要 §4.2 修订后状态机与代码一致
-- traceability 与 verification-report 自评一致性
-- known-issues 清单完备性
+Dev 完成后重新走 Pre-merge QA 流程。
+
+## 备注
+
+- Dev 第一轮整体质量很高（15/15 单测 + 12/12 集成测试全绿 + AC-09 0 命中）
+- 主要问题集中在 UI 层组件使用不当（Image vs Video）+ 文档/代码一致性
+- 真机 e2e（AC-03/05/11 + NFR-01/02/03）暂无法验证，需 DevEco NEXT + 4.2 双真机，本轮不动
