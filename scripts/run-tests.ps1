@@ -151,7 +151,7 @@ if ($SkipIntegration) {
       '[]' | Out-File -FilePath (Join-Path $RunDir 'integration.json') -Encoding UTF8
     }
     if ($proc.ExitCode -eq 0) {
-      Step-End 'integration-tests' 'pass' "integration-test.ps1 exit=0 (T1-T16)"
+      Step-End 'integration-tests' 'pass' "integration-test.ps1 exit=0 (T1-T17; 17 cases)"
     } else {
       Step-End 'integration-tests' 'fail' "exit=$($proc.ExitCode); see logs"
       Get-Content (Join-Path $RunDir 'integration.stderr.log') -ErrorAction SilentlyContinue | Select-Object -Last 30
