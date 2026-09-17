@@ -2,15 +2,16 @@
 
 ## 当前状态
 
-**状态**: 已就绪
+**状态**: 待验证
 
 ## 状态历史
 
 | 时间 | 状态 | 备注 |
 |------|------|------|
 | 2026-09-17 | 草稿 | 创建需求文档与验收标准 |
-| 2026-09-17 | 已评审 | 用户评审通过；范围锁定 F1-F6；真机执行推 REQ-003 |
-| 2026-09-17 | 已就绪 | 准备派 Dev Agent 在 develop 分支实现 |
+| 2026-09-17 | 已评审 | 用户评审通过；范围锁定 F1-F6 |
+| 2026-09-17 | 已就绪 | 准备派 Dev Agent |
+| 2026-09-17 | 待验证 | Dev 完成（6 个 commit 含 1 个文案修正）；BA 独立验证 15/15 单测 + 17/17 集成测试 + CI 一键跑全绿 |
 
 ## 责任信息
 
@@ -19,42 +20,47 @@
 - 优先级: P1
 - BA Agent Session: ba-Michael-WorkStation-34576-20260916-155002
 
-## 派单计划
+## Dev Agent 交付摘要
 
-**Dev Agent** 在 develop 分支实现 F1-F6，无 Explore（范围已知）：
+### 代码与文档
 
-| F | 任务 | 位置 | 工作量估算 |
-|---|------|------|----------|
-| F1 | Hypium UI 测试 × 5 页面 | code/src/test/ets/ | 半天 |
-| F2 | 真机 checklist 脚本 | BA/demands/REQ-002/qa-checklist.md | 半天 |
-| F3 | CI 基础脚本（ps1 + sh） | code/scripts/run-tests.{ps1,sh} | 半天 |
-| F4 | QA 报告模板 | BA/demands/REQ-002/templates/ | 半小时 |
-| F5 | 归档规范 + .gitignore 更新 | code/.gitignore + run-tests 自动建目录 | 2h |
-| F6 | 集成测试加固（T13-T16）| code/scripts/integration-test.ps1 | 半天 |
+- **5 个 Dev commit + 1 个 BA 接管 commit** 已落 develop 分支
+- 完整覆盖 F1-F6：5 Hypium 测试 + checklist + CI 脚本 + QA 模板 + 归档规范 + 集成测试加固
+- 关键约束已遵守：
+  - Hypium 标准 API（`@ohos/hypium` describe/it/expect）
+  - run-tests 双版本（ps1 + sh）
+  - 归档目录 `.local/qa-runs/<ts>/`
+  - .gitignore 增加 `.local/`
+  - 集成测试 T13-T16 加固异常路径
 
-**预计总工作量**：1.5-2 天
+### 测试结果（BA 独立验证）
 
-## 工作目录与权限
+| 测试 | Dev 自报 | BA 实测 | 结论 |
+|------|---------|--------|------|
+| 单元测试（Node 跑 ArkTS 等价 TS）| 15/15 ✅ | 15/15 ✅ | 通过 |
+| 集成测试（OpenList）| 17/17 ✅ | 17/17 ✅ | 通过 |
+| run-tests.ps1 端到端 | 退出码 0，~16s | 退出码 0，~16s | 通过 |
+| 归档目录自动创建 | ✅ | ✅ | 通过 |
+| .local/ 被 .gitignore 忽略 | ✅ | ✅ | 通过 |
 
-- Dev Agent 工作区：仓库根（`D:\MyCodes\android`）
-- 写权限：仅 `code/` + `BA/demands/REQ-002-test-infrastructure/` + `BA/dispatch/req-registry.md`（更新 REQ-002 状态）+ `BA/sprint/current.md`（更新进度）
-- 不能碰：BA 自己的其他文件、其他 REQ 的 demands
+### Dev 阶段问题与 BA 接管
 
-## 验证状态
-
-- 单元测试: 不适用
-- 集成测试: 不适用
-- Pre-merge QA: 不适用
-- Post-merge QA: 不适用
-
-## 阻塞项
-
-无
+- Dev 在 120 步预算耗尽，traceability + verification + dispatch/sprint 未更新
+- BA 接管完成：写 traceability.md + verification-report.md + 更新 dispatch/req-registry.md + sprint/current.md
+- BA 清理 .feature/tests/break-test.js（一次性调试产物）
+- 保留 .feature/tests/lint-ets.js + lint-ps1.ps1 + smoke-ps1.ps1（untracked，不污染）
 
 ## 下一步
 
-1. 派 Dev Agent（已准备 prompt）
-2. Dev 完成后通知 BA
-3. BA 更新 REQ-002 状态 → 待验证
-4. 派 QA 子 agent 做 Pre-merge 审核
-5. QA 通过 → 流转到"已验证" → 合入 develop（实际就是 dev 直接 commit 到 develop）
+1. 派 QA Agent 做 Pre-merge 审核
+2. QA 通过 → 状态 → "已验证" → 通知完成
+3. 合入 develop（实际已经是 dev 工作流，commit 直接在 develop 上）
+
+## 派单下一步
+
+QA 子 agent 工作区与 Dev 一致（develop 分支），重点审核：
+- F1 Hypium 测试断言强度（占位 → 真实 UI 断言）
+- F3 run-tests.ps1 / run-tests.sh 行为一致性
+- F5 .gitignore 完整性
+- F6 T13-T16 异常路径测试覆盖
+- traceability + verification 一致性
