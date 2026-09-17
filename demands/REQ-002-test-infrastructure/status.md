@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-**状态**: 已评审
+**状态**: 已就绪
 
 ## 状态历史
 
@@ -10,6 +10,7 @@
 |------|------|------|
 | 2026-09-17 | 草稿 | 创建需求文档与验收标准 |
 | 2026-09-17 | 已评审 | 用户评审通过；范围锁定 F1-F6；真机执行推 REQ-003 |
+| 2026-09-17 | 已就绪 | 准备派 Dev Agent 在 develop 分支实现 |
 
 ## 责任信息
 
@@ -18,37 +19,30 @@
 - 优先级: P1
 - BA Agent Session: ba-Michael-WorkStation-34576-20260916-155002
 
-## 评审结论
+## 派单计划
 
-**通过**。范围、验收标准、派单策略均明确。
+**Dev Agent** 在 develop 分支实现 F1-F6，无 Explore（范围已知）：
 
-### 范围锁定
+| F | 任务 | 位置 | 工作量估算 |
+|---|------|------|----------|
+| F1 | Hypium UI 测试 × 5 页面 | code/src/test/ets/ | 半天 |
+| F2 | 真机 checklist 脚本 | BA/demands/REQ-002/qa-checklist.md | 半天 |
+| F3 | CI 基础脚本（ps1 + sh） | code/scripts/run-tests.{ps1,sh} | 半天 |
+| F4 | QA 报告模板 | BA/demands/REQ-002/templates/ | 半小时 |
+| F5 | 归档规范 + .gitignore 更新 | code/.gitignore + run-tests 自动建目录 | 2h |
+| F6 | 集成测试加固（T13-T16）| code/scripts/integration-test.ps1 | 半天 |
 
-- F1 Hypium UI 测试（5 个页面 × 至少 1 it()）
-- F2 真机 checklist 脚本（REQ-003 用）
-- F3 CI 基础脚本（PowerShell + bash 双版本）
-- F4 Post-merge QA 报告模板
-- F5 测试结果归档规范（.local/qa-runs/）
-- F6 集成测试加固（T13-T16，4 个异常路径）
+**预计总工作量**：1.5-2 天
 
-### 不做（已确认推 REQ-003 或二期）
+## 工作目录与权限
 
-- 真机执行 / 真机问题修复
-- CI 平台接入（GitHub Actions 等）
-- 性能 benchmark 自动化
-- UI 录制视频回放
-- 仅修阻断级问题
-
-## 派单策略
-
-- **不创建 feature-REQ-002 worktree**——纯加项，dev 工作流
-- **Dev Agent 在 develop 分支提交**
-- **跳过 Explore**（范围已知）
-- commit 格式：`[Dev] {描述} (关联: REQ-002)`
+- Dev Agent 工作区：仓库根（`D:\MyCodes\android`）
+- 写权限：仅 `code/` + `BA/demands/REQ-002-test-infrastructure/` + `BA/dispatch/req-registry.md`（更新 REQ-002 状态）+ `BA/sprint/current.md`（更新进度）
+- 不能碰：BA 自己的其他文件、其他 REQ 的 demands
 
 ## 验证状态
 
-- 单元测试: 不适用（Dev 实现阶段启动）
+- 单元测试: 不适用
 - 集成测试: 不适用
 - Pre-merge QA: 不适用
 - Post-merge QA: 不适用
@@ -59,8 +53,8 @@
 
 ## 下一步
 
-1. 流转到"已就绪"
-2. 派 Dev Agent 在 develop 分支实现 F1-F6
-3. Dev 完成后 → Pre-merge QA 审核
-4. QA 通过 → 流转到"已验证"
-5. 合入 develop（直接 commit 即可，无 PR）
+1. 派 Dev Agent（已准备 prompt）
+2. Dev 完成后通知 BA
+3. BA 更新 REQ-002 状态 → 待验证
+4. 派 QA 子 agent 做 Pre-merge 审核
+5. QA 通过 → 流转到"已验证" → 合入 develop（实际就是 dev 直接 commit 到 develop）
