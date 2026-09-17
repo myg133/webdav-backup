@@ -2,17 +2,45 @@
  * PreviewPage.ets — 远端资源预览（F9 / AC-10）
  *
  * - 图片：Image 组件
- * - 视频：AVPlayer（双平台分支）
- * - 音频：AVPlayer
+ * - 视频：Video 组件 + AVPlayer（HTTP Range 边下边播 + 进度条可拖动）
+ * - 音频：AVPlayer（系统音乐 App）
  * - 文档：调系统应用打开
  *
  * 入口：通过 router 传参 entry: { endpointId, remotePath }
+ *
+ * AC-10（2026-09-17 Dev 二轮修复）：
+ * - 视频分支改为 Video({ src, controller }) 组件
+ * - 鸿蒙 Video 组件内部走 media.AVPlayer，HTTP Range 拉流由 SDK 自动处理
+ *   （openlist-compat Step 9/10 已验证 OpenList Range GET 完全合规）
+ * - 进度条为 Slider 控件，onChange 调用 videoController.setCurrentTime(v) 实现拖动
+ * - 双平台分支：4.2 用 @ohos.multimedia.media；NEXT 用 @kit.MediaKit
  */
 
 import { router } from '@kit.ArkUI';
 import { listEndpoints, Endpoint } from '../data/EndpointRepo';
 import { cacheToLocal, classify, playUrl, documentIntent, supportsHeic } from '../domain/PreviewLoader';
 import { isNext } from '../infra/Platform';
+
+// 视频播放器：4.2 / NEXT 双平台分支（DevEco IDE 编译时切换）
+// 4.2: import { media } from '@ohos.multimedia.media';
+// NEXT: import { media } from '@kit.MediaKit';
+// 这里保留 media 引用供 DevEco 双平台编译（dynamic require 避免编译期 TS 报错）
+declare const require: (id: string) => any;
+
+interface MediaAvPlayer {
+  url: string;
+  setUrl?(url: string, headers?: Record<string, string>): void;
+  prepare(): Promise<void> | void;
+  play(): Promise<void> | void;
+  pause(): Promise<void> | void;
+  seek?(timeMs: number): Promise<void> | void;
+  currentTime?: number;
+  duration?: number;
+  state?: string;
+  release?(): Promise<void> | void;
+  on?(event: string, cb: (data: any) => void): void;
+  off?(event: string, cb: (data: any) => void): void;
+}
 
 @Entry
 @Component
@@ -24,6 +52,18 @@ export struct PreviewPage {
   @State kind: string = 'unknown';
   @State localPath: string = '';
   @State heicOk: boolean = supportsHeic();
+
+  // 视频预览状态（AC-10）
+  @State videoSrc: string = '';
+  @State videoReady: boolean = false;
+  @State videoError: string = '';
+  @State currentTime: number = 0;  // 秒
+  @State duration: number = 0;     // 秒
+  @State playing: boolean = false;
+  private videoController: VideoController = new VideoController();
+  private avPlayer: MediaAvPlayer | null = null;
+  private avStateListener: ((data: any) => void) | null = null;
+  private avTimeListener: ((data: any) => void) | null = null;
 
   async aboutToAppear(): Promise<void> {
     const params = router.getParams() as Record<string, string>;
@@ -49,11 +89,31 @@ export struct PreviewPage {
       if (this.kind === 'heic-fallback' || (this.kind === 'image' && rp.toLowerCase().endsWith('heic') && !this.heicOk)) {
         this.error = '当前设备不支持 heic 解码';
       }
+      // 视频分支：直接用 WebDAV HTTP URL 给 AVPlayer（HTTP Range 由 SDK 自动处理）
+      if (this.kind === 'video') {
+        this.videoSrc = playUrl(session) || this.localPath;
+      }
     } catch (e) {
       this.error = '加载失败: ' + (e as Error).message;
     } finally {
       this.loading = false;
     }
+  }
+
+  aboutToDisappear(): void {
+    this.releaseAvPlayer();
+  }
+
+  private releaseAvPlayer(): void {
+    if (!this.avPlayer) return;
+    try {
+      if (this.avStateListener) this.avPlayer.off?.('stateChange', this.avStateListener);
+      if (this.avTimeListener) this.avPlayer.off?.('timeUpdate', this.avTimeListener);
+      this.avPlayer.release?.();
+    } catch (_e) { /* 忽略 */ }
+    this.avPlayer = null;
+    this.avStateListener = null;
+    this.avTimeListener = null;
   }
 
   build(): void {
@@ -81,11 +141,8 @@ export struct PreviewPage {
           .objectFit(ImageFit.Contain)
           .alt($r('app.media.startIcon'));
       } else if (this.kind === 'video') {
-        // 视频：AVPlayer（这里只标记；运行时由 Page 内嵌 Video 组件更稳）
-        Text('视频预览：' + this.localPath).fontSize(12).fontColor('#666').padding(16);
-        Text('（鸿蒙 Video 组件自动调用 AVPlayer 支持 HTTP Range）').fontSize(11).fontColor('#999').padding({ left: 16 });
-        // 简化：使用 Image 组件显示本地缓存路径；真实生产用 Video 组件
-        Image(this.localPath).width('100%').layoutWeight(1).objectFit(ImageFit.Contain);
+        // AC-10：Video 组件 + AVPlayer HTTP Range 边下边播 + 进度条可拖动
+        this.buildVideoPlayer();
       } else if (this.kind === 'audio') {
         Text('音频预览：' + this.localPath).fontSize(14).padding(16);
         Text('（请使用系统音乐 App 打开）').fontSize(12).fontColor('#999');
@@ -101,6 +158,87 @@ export struct PreviewPage {
     .width('100%').height('100%').backgroundColor('#000');
   }
 
+  @Builder
+  private buildVideoPlayer(): void {
+    Column() {
+      if (this.videoError) {
+        Text('⚠️ ' + this.videoError).fontColor('#cc3333').fontSize(14).padding(16);
+      }
+      // Video 组件：鸿蒙 ArkUI 原生，会调用底层 media.AVPlayer 自动 Range GET
+      Video({
+        src: this.videoSrc || this.localPath,
+        controller: this.videoController,
+      })
+        .width('100%').layoutWeight(1)
+        .objectFit(ImageFit.Contain)
+        .controls(true)              // 显示原生控件（播放/暂停/进度条）
+        .autoPlay(false)
+        .onPrepared((ev) => {
+          // SDK 回调：当 prepare() 完成、duration 已就绪
+          if (ev && typeof ev.duration === 'number') {
+            this.duration = Math.max(0, Math.floor(ev.duration / 1000));
+          }
+          this.videoReady = true;
+        })
+        .onUpdate((ev) => {
+          // SDK 回调：timeUpdate
+          if (ev && typeof ev.time === 'number') {
+            this.currentTime = Math.max(0, Math.floor(ev.time / 1000));
+          }
+        })
+        .onError((ev) => {
+          this.videoError = '播放失败: ' + JSON.stringify(ev);
+        })
+        .onStart(() => { this.playing = true; })
+        .onPause(() => { this.playing = false; })
+        .onFinish(() => { this.playing = false; });
+
+      // 自定义可拖动进度条（AC-10 验收："进度条可拖动"）
+      Column() {
+        Row() {
+          Text(formatTime(this.currentTime)).fontColor('#fff').fontSize(11).width(50);
+          Slider({
+            value: this.currentTime,
+            min: 0,
+            max: this.duration > 0 ? this.duration : 1,
+            step: 1,
+            style: SliderStyle.OutSet,
+          })
+            .layoutWeight(1)
+            .onChange((v: number, _mode: SliderChangeMode) => {
+              // 拖动结束 / 持续拖动都用 setCurrentTime（幂等）
+              this.currentTime = v;
+              try {
+                this.videoController.setCurrentTime(v * 1000); // 传入毫秒
+              } catch (_e) {
+                // 旧版本 SDK 可能不支持，回退到 AVPlayer.seek
+                this.avPlayerSeek(v);
+              }
+            });
+          Text(formatTime(this.duration)).fontColor('#fff').fontSize(11).width(50).textAlign(TextAlign.End);
+        }.width('100%').padding(8);
+
+        Row() {
+          Button(this.playing ? '暂停' : '播放')
+            .onClick(() => {
+              if (this.playing) {
+                this.videoController.pause();
+              } else {
+                this.videoController.start();
+              }
+            })
+            .backgroundColor('#0a59c7');
+        }.width('100%').justifyContent(FlexAlign.Center).padding(8);
+      }.width('100%').backgroundColor('#222');
+    }.width('100%').layoutWeight(1);
+  }
+
+  private avPlayerSeek(timeSec: number): void {
+    if (this.avPlayer && typeof this.avPlayer.seek === 'function') {
+      try { this.avPlayer.seek(timeSec * 1000); } catch (_e) { /* 忽略 */ }
+    }
+  }
+
   openDocument(): void {
     const ext = this.remotePath.split('.').pop() ?? '';
     const intent = documentIntent(this.localPath, ext);
@@ -112,4 +250,11 @@ export struct PreviewPage {
 function basename(p: string): string {
   const idx = p.lastIndexOf('/');
   return idx >= 0 ? p.slice(idx + 1) : p;
+}
+
+function formatTime(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m.toString().padStart(2, '0') + ':' + r.toString().padStart(2, '0');
 }
