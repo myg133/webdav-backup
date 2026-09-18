@@ -8,6 +8,9 @@ const tests = [
   { name: 'WebDAVClient (parseMultistatus)', file: 'WebDAVClient.test.ts' },
   { name: 'KeyStore (fallback encrypt)', file: 'KeyStore.test.ts' },
   { name: 'UploadQueue (retry/backoff)', file: 'UploadQueue.test.ts' },
+  { name: 'MasterKey (PBKDF2)', file: 'MasterKey.test.ts' },
+  { name: 'E2ECrypto (AES-256-GCM)', file: 'E2ECrypto.test.ts' },
+  { name: 'E2EFileFormat (.wde 格式)', file: 'E2EFileFormat.test.ts' },
 ];
 
 let passed = 0, failed = 0;
