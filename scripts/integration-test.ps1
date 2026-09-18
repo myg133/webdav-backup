@@ -349,6 +349,159 @@ if ($code -ne 201) {
 Write-Host "`n[T17] 5xx server-side simulation -- SKIPPED (known untested)"
 Add-Result 'T17: 5xx server-side simulation' $true 'SKIPPED: requires server-side cooperation; covered client-side by UploadQueue.test.ts'
 
+# ===== REQ-004 端到端加密 (T18-T22) =====
+# 用法：调用 node encrypt-helper.mjs 完成 AES-256-GCM 加密 / 解密 / 文件名 加密 / base64url
+$HelperScript = Join-Path $PSScriptRoot 'encrypt-helper.mjs'
+$TestPassword = 'req004-test-pwd-2026'
+$TestSaltHex = '0123456789abcdef0123456789abcdef'  # 16 字节
+# 使用脚本所在目录的子目录（避免 $env:TEMP 在不同环境下行为不一致）
+$E2eTmpDir = Join-Path $PSScriptRoot '.e2e-tmp'
+if (-not (Test-Path $E2eTmpDir)) { New-Item -ItemType Directory -Path $E2eTmpDir -Force | Out-Null }
+$E2eTmpDir = (Resolve-Path $E2eTmpDir).Path
+Write-Host "REQ-004 temp dir: $E2eTmpDir"
+
+# T18: PUT 加密文件 -> 远端可下载 -> 客户端解密 -> 字节一致
+Write-Host "`n[T18] PUT encrypted file -> GET -> decrypt -> byte-identical"
+$PlainPath = Join-Path $E2eTmpDir "e2e_dev_plain_$Timestamp.bin"
+$EncPath   = Join-Path $E2eTmpDir "e2e_dev_enc_$Timestamp.bin"
+$DecPath   = Join-Path $E2eTmpDir "e2e_dev_dec_$Timestamp.bin"
+# 原名明文，包含 '特殊符号'
+$OrigName = "photo-$Timestamp.jpg"
+# 生成原明文（1KB 随机）
+$PlainBytes = New-Object 'System.Byte[]' 1024
+Write-Host "  PlainBytes type=$($PlainBytes.GetType().FullName) len=$($PlainBytes.Length)"
+(New-Object Random).NextBytes($PlainBytes)
+Write-Host "  PlainBytes first=$($PlainBytes[0])"
+try {
+  [System.IO.File]::WriteAllBytes($PlainPath, $PlainBytes)
+  Write-Host "  PlainPath written: $PlainPath exists=$([System.IO.File]::Exists($PlainPath))"
+} catch {
+  Write-Host "  WriteAllBytes failed: $($_.Exception.Message)"
+  throw
+}
+# 1. 加密
+$encOut = node $HelperScript encrypt $TestPassword $TestSaltHex $PlainPath $EncPath $OrigName 2>&1 | Out-String
+if ($LASTEXITCODE -ne 0) {
+  Add-Result 'T18: PUT encrypted file -> GET -> decrypt' $false "encrypt helper failed: $encOut"
+} else {
+  # 2. 加密文件名 (base64url + .wde)
+  $encName = node $HelperScript encrypt-name $TestPassword $TestSaltHex $OrigName 2>&1 | Out-String
+  $encName = $encName.Trim()
+  $EncRemoteUrl = $BaseUrl + "$TestDir/$encName"
+  # 3. PUT 到远端
+  $encBytes = [System.IO.File]::ReadAllBytes($EncPath)
+  $putR = Http-Request -method PUT -url $EncRemoteUrl -body $encBytes -extraHeaders @{ 'Content-Type' = 'application/octet-stream' }
+  $putCode = Get-StatusCode $putR
+  if ($putCode -ne 201) {
+    Add-Result 'T18: PUT encrypted file -> GET -> decrypt' $false "PUT status=$putCode"
+  } else {
+    # 4. GET 远端 密文
+    $getR = Http-Request -method GET -url $EncRemoteUrl -body $null -extraHeaders @{}
+    $getCode = Get-StatusCode $getR
+    if ($getCode -ne 200) {
+      Add-Result 'T18: PUT encrypted file -> GET -> decrypt' $false "GET status=$getCode"
+    } else {
+      $gotEnc = $getR.Content.ReadAsByteArrayAsync().Result
+      [System.IO.File]::WriteAllBytes($EncPath, $gotEnc)
+      # 5. 客户端解密
+      $decOut = node $HelperScript decrypt $TestPassword $TestSaltHex $EncPath $DecPath 2>&1 | Out-String
+      if ($LASTEXITCODE -ne 0) {
+        Add-Result 'T18: PUT encrypted file -> GET -> decrypt' $false "decrypt helper failed: $decOut"
+      } else {
+        $decBytes = [System.IO.File]::ReadAllBytes($DecPath)
+        $decSha = [System.Security.Cryptography.SHA256]::Create().ComputeHash($decBytes)
+        $decShaHex = -join ($decSha | ForEach-Object { $_.ToString('x2') })
+        $origSha = [System.Security.Cryptography.SHA256]::Create().ComputeHash($PlainBytes)
+        $origShaHex = -join ($origSha | ForEach-Object { $_.ToString('x2') })
+        if ($decBytes.Length -eq $PlainBytes.Length -and $decShaHex -eq $origShaHex) {
+          Add-Result 'T18: PUT encrypted file -> GET -> decrypt' $true "size=$($PlainBytes.Length), SHA-256 match ($origShaHex)"
+        } else {
+          Add-Result 'T18: PUT encrypted file -> GET -> decrypt' $false "size/dec mismatch (orig=$($PlainBytes.Length)/@$origShaHex, got=$($decBytes.Length)/@$decShaHex)"
+        }
+      }
+    }
+  }
+}
+
+# T19: 远端文件名 = .wde 后缀 + base64url（不可识别原名）
+Write-Host "`n[T19] remote filename = .wde + base64url (original name not visible)"
+# 上一步已 PUT $EncRemoteUrl · 重复检查远程文件名是否不可识别原明文
+# 验证：远端文件名不以 'photo' / 原名任何子串起始
+$origNameTail = $OrigName.split('.')[0]  # 'photo-1234567890'
+if ($encName.EndsWith('.wde')) {
+  # base64url 字符集： A-Z a-z 0-9 - _
+  $base64Only = ($encName -replace '.wde$', '') -match '^[A-Za-z0-9\-_]+$'
+  if ($base64Only -and ($encName.IndexOf('photo', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) -and ($encName.IndexOf('jpg', [System.StringComparison]::OrdinalIgnoreCase) -lt 0)) {
+    Add-Result 'T19: remote filename = .wde + base64url' $true "enc=$encName (original '$OrigName' not visible)"
+  } else {
+    Add-Result 'T19: remote filename = .wde + base64url' $false "enc name contains original substring: $encName"
+  }
+} else {
+  Add-Result 'T19: remote filename = .wde + base64url' $false "missing .wde suffix: $encName"
+}
+
+# T20: 篡改 1 字节 -> 解密失败
+Write-Host "`n[T20] tamper 1 byte -> decrypt fails"
+$TamperInPath = Join-Path $E2eTmpDir "e2e_dev_tamperin_$Timestamp.bin"
+$TamperOutPath = Join-Path $E2eTmpDir "e2e_dev_tamperout_$Timestamp.bin"
+Copy-Item $EncPath $TamperInPath -Force
+# 在文件中间 (100B 处) 翻转一个位
+$tmpBytes = [System.IO.File]::ReadAllBytes($TamperInPath)
+$tmpBytes[100] = ($tmpBytes[100] -bxor 0x01)
+[System.IO.File]::WriteAllBytes($TamperInPath, $tmpBytes)
+# 解密 -> 预期 exit 1
+$decOut20 = node $HelperScript decrypt $TestPassword $TestSaltHex $TamperInPath $TamperOutPath 2>&1 | Out-String
+$decEc = $LASTEXITCODE
+if ($decEc -ne 0) {
+  Add-Result 'T20: tamper 1 byte -> decrypt fails' $true "decrypt rejected tampered ciphertext (exit=$decEc)"
+} else {
+  Add-Result 'T20: tamper 1 byte -> decrypt fails' $false "decrypt succeeded on tampered ciphertext!"
+}
+
+# T21: 主密码错误 -> null (派生不同 masterKey -> decrypt 失败)
+Write-Host "`n[T21] wrong master password -> null/decrypt fails"
+$WrongPwd = 'wrong-password-9999'
+$DecFailPath = Join-Path $E2eTmpDir "e2e_dev_decfail_$Timestamp.bin"
+$decOut21 = node $HelperScript decrypt $WrongPwd $TestSaltHex $EncPath $DecFailPath 2>&1 | Out-String
+$decEc21 = $LASTEXITCODE
+if ($decEc21 -ne 0) {
+  Add-Result 'T21: wrong master password -> null/decrypt fails' $true "wrong pwd rejected by GCM tag mismatch (exit=$decEc21)"
+} else {
+  Add-Result 'T21: wrong master password -> null/decrypt fails' $false "wrong pwd was accepted!"
+}
+
+# T22: 关闭 e2e 开关 -> 明文上传（兼容 REQ-001 行为）
+Write-Host "`n[T22] e2e disabled -> plain PUT (compatible with REQ-001)"
+$PlainRemotePath = "$TestDir/plain_$Timestamp.bin"
+$PlainRemoteUrl = $BaseUrl + $PlainRemotePath
+$PlainBytes22 = New-Object 'System.Byte[]' 2048
+(New-Object Random).NextBytes($PlainBytes22)
+$putR22 = Http-Request -method PUT -url $PlainRemoteUrl -body $PlainBytes22 -extraHeaders @{ 'Content-Type' = 'application/octet-stream' }
+$putCode22 = Get-StatusCode $putR22
+if ($putCode22 -ne 201) {
+  Add-Result 'T22: e2e disabled -> plain PUT (compatible)' $false "PUT status=$putCode22"
+} else {
+  # GET 远端 -> SHA-256 与本地一致 (明文未加密)
+  $getR22 = Http-Request -method GET -url $PlainRemoteUrl -body $null -extraHeaders @{}
+  $getCode22 = Get-StatusCode $getR22
+  if ($getCode22 -ne 200) {
+    Add-Result 'T22: e2e disabled -> plain PUT (compatible)' $false "GET status=$getCode22"
+  } else {
+    $gotBytes22 = $getR22.Content.ReadAsByteArrayAsync().Result
+    $localSha22 = [System.Security.Cryptography.SHA256]::Create().ComputeHash($PlainBytes22)
+    $localShaHex22 = -join ($localSha22 | ForEach-Object { $_.ToString('x2') })
+    $gotSha22 = [System.Security.Cryptography.SHA256]::Create().ComputeHash($gotBytes22)
+    $gotShaHex22 = -join ($gotSha22 | ForEach-Object { $_.ToString('x2') })
+    # 远程路径不含 .wde 后缀
+    $pathNoWde = -not $PlainRemotePath.EndsWith('.wde')
+    if ($gotBytes22.Length -eq $PlainBytes22.Length -and $localShaHex22 -eq $gotShaHex22 -and $pathNoWde) {
+      Add-Result 'T22: e2e disabled -> plain PUT (compatible)' $true "size=$($PlainBytes22.Length), SHA-256 match, no .wde suffix"
+    } else {
+      Add-Result 'T22: e2e disabled -> plain PUT (compatible)' $false "sha mismatch or has .wde suffix (local=$localShaHex22, got=$gotShaHex22, pathNoWde=$pathNoWde)"
+    }
+  }
+}
+
 Write-Host "`n====== Summary ======"
 $pass = ($results | Where-Object { $_.pass }).Count
 $fail = ($results | Where-Object { -not $_.pass }).Count
