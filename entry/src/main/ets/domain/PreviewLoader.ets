@@ -14,6 +14,7 @@
 import { Endpoint } from '../data/EndpointRepo';
 import { get, revealPassword } from '../data/EndpointRepo';
 import { isNext } from '../infra/Platform';
+import { FILENAME_EXT } from './E2EFileFormat';
 
 declare const require: (id: string) => any;
 
@@ -25,40 +26,84 @@ export interface PreviewSession {
   localCachePath?: string;
   playUrl?: string; // AVPlayer 用
   contentLength: number;
+  /** REQ-004: 远端文件是加密 .wde？true 时按 decrypted 字节渲染 */
+  e2eEncrypted?: boolean;
+  /** REQ-004: 解密后的原始文件名（仅 e2e=true 时有） */
+  origName?: string;
 }
 
 export function classify(remotePath: string): PreviewKind {
   const lower = remotePath.toLowerCase();
-  if (/\.(jpe?g|png|webp|heic|heif)$/i.test(lower)) return 'image';
-  if (/\.(mp4|mov|m4v|webm)$/i.test(lower)) return 'video';
-  if (/\.(mp3|m4a|flac|ogg|wav)$/i.test(lower)) return 'audio';
-  if (/\.(pdf|docx?|xlsx?|pptx?|txt)$/i.test(lower)) return 'document';
+  // REQ-004: 远端文件名加密后以 .wde 结尾；这里不区分，跳过该后缀以原始扩展名重判
+  const stemLower = lower.endsWith(FILENAME_EXT) ? lower.slice(0, -FILENAME_EXT.length) : lower;
+  // 原后缀加上去作 classify
+  // 简化：.wde 后缀默认不识别，让上层走通用逻辑
+  if (/\.(jpe?g|png|webp|heic|heif)$/i.test(stemLower)) return 'image';
+  if (/\.(mp4|mov|m4v|webm)$/i.test(stemLower)) return 'video';
+  if (/\.(mp3|m4a|flac|ogg|wav)$/i.test(stemLower)) return 'audio';
+  if (/\.(pdf|docx?|xlsx?|pptx?|txt)$/i.test(stemLower)) return 'document';
+  // .wde 后缀作为未知（仅识别为加密）
   return 'unknown';
+}
+
+/**
+ * 是否是加密文件（远端 .wde 后缀）
+ */
+export function isE2EEncrypted(remotePath: string): boolean {
+  return remotePath.toLowerCase().endsWith(FILENAME_EXT);
 }
 
 /**
  * 把远端文件 GET 到本地沙箱缓存，返回本地路径。
  * - 图片预览用 Image(src) 直接渲染本地路径（鸿蒙 Image 支持）
  * - 文档预览调用系统打开本地文件
+ *
+ * REQ-004: 远端文件名 .wde 结尾 → 解密后写本地缓存；本地文件路径不带 .wde
  */
 export async function cacheToLocal(ep: Endpoint, remotePath: string): Promise<PreviewSession> {
-  const kind = classify(remotePath);
+  const e2e = isE2EEncrypted(remotePath);
   const base = require('@ohos.file.fs');
   const ctx = typeof getContext === 'function' ? getContext() : null;
   const cacheDir = ctx?.cacheDir ?? '/data/storage/el2/base/cache';
   const safeName = remotePath.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const localPath = cacheDir + '/preview_' + safeName;
+  const localPath = cacheDir + '/preview_' + safeName + (e2e ? '.plain' : '');
 
   // 拉远端（限定大小：图片 < 100MB、视频 < 500MB；超出截断）
   const MAX_IMAGE = 100 * 1024 * 1024;
   const MAX_VIDEO = 500 * 1024 * 1024;
-  const max = kind === 'image' ? MAX_IMAGE : MAX_VIDEO;
+  const max = MAX_VIDEO;
 
   const r = await get(ep, remotePath);
   if (!r.ok && r.status !== 206) {
     throw new Error(`GET failed: ${r.status}`);
   }
-  const body = r.body.slice(0, max);
+  let body = r.body.slice(0, max);
+  let kind: PreviewKind = classify(remotePath);
+  let origName: string | undefined;
+
+  // REQ-004: 解密
+  if (e2e) {
+    const { decryptFile, E2E_AUTH_ERROR: AuthErr } = await import('./E2ECrypto');
+    const { loadMasterKey } = await import('../data/MasterKeyRepo');
+    const mk = await loadMasterKey(ep.id);
+    if (!mk) {
+      throw new Error('加密文件，但无主密钥');
+    }
+    let decrypted: { name: string; size: number; data: ArrayBuffer };
+    try {
+      decrypted = await decryptFile(body, mk.masterKey);
+    } catch (e) {
+      if ((e as Error).name === 'E2E_AUTH_ERROR') {
+        throw new Error('加密文件损坏或主密码错误');
+      }
+      throw e;
+    }
+    body = decrypted.data;
+    origName = decrypted.name;
+    // 按原始文件名重分类（jpg / mp4 ...）
+    kind = classify('.' + (origName.split('.').pop() ?? ''));
+  }
+
   // 写本地
   base.writeBytesSync?.(localPath, body);
 
@@ -67,6 +112,8 @@ export async function cacheToLocal(ep: Endpoint, remotePath: string): Promise<Pr
     remotePath,
     localCachePath: localPath,
     contentLength: body.byteLength,
+    e2eEncrypted: e2e,
+    origName,
   };
 }
 

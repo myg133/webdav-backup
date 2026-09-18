@@ -20,6 +20,7 @@
  */
 
 import {
+  put,
   putFile,
   head,
   sha256Hex,
@@ -34,6 +35,9 @@ import {
 import { upsertFingerprint } from '../data/FingerprintRepo';
 import { BackupTask } from '../data/TaskRepo';
 import { info, warn, error as logError } from '../infra/Logger';
+import { encryptFile, encryptFilename, E2E_AUTH_ERROR } from './E2ECrypto';
+import { loadMasterKey } from '../data/MasterKeyRepo';
+import { upsertRemotePath, getRemotePath } from '../data/RemotePathRepo';
 
 export interface QueueItem {
   task: BackupTask;
@@ -155,7 +159,9 @@ export class UploadQueue {
         //   server_len < total → 重传整文件（OpenList 不支持追加）
         //   server_len > total → 跳过 + 警告（理论不应发生）
         const headInfo: HeadResult = await head(item.endpoint, item.remotePath);
-        if (headInfo.contentLength === item.fileSize) {
+        // REQ-004：e2e 开关下，远端文件大小 ≠ 明文大小；不依赖 size 比对去重
+        // （指纹库已用 sha256 兜底）。e2e 路径跳过 size 比对。
+        if (!item.endpoint.e2eEnabled && headInfo.contentLength === item.fileSize) {
           // 远端已有同长度文件——按 AC-06 指纹判定逻辑应当已"跳过"；
           // 这里兜底：直接标记成功
           info('[UploadQueue] head: skip (size matched)', { remote: item.remotePath });
@@ -175,9 +181,14 @@ export class UploadQueue {
         }
 
         // 整文件 PUT
-        const r = await putFile(item.endpoint, item.filePath, item.remotePath, {
-          progress: (sent, total) => this.emit({ type: 'progress', item, sent, total, historyId: history.id }),
-        });
+        let r: { ok: boolean; status: number; bytes: number; sha256?: string };
+        if (item.endpoint.e2eEnabled) {
+          r = await this.uploadEncrypted(item, history.id);
+        } else {
+          r = await putFile(item.endpoint, item.filePath, item.remotePath, {
+            progress: (sent, total) => this.emit({ type: 'progress', item, sent, total, historyId: history.id }),
+          });
+        }
 
         if (r.ok && r.sha256) {
           await updateHistory(history.id, {
@@ -248,6 +259,106 @@ export class UploadQueue {
     }
 
     return false;
+  }
+
+  /**
+   * 加密上传路径（REQ-004 F4）：
+   *   1. 读取本地明文
+   *   2. master key + salt → 加载；失败抛错（不该走到这、KeyStore 不可用 fallback）
+   *   3. AES-256-GCM 加密 → .wde 字节流
+   *   4. 文件名加密 → base64url + .wde
+   *   5. PUT .wde 到远端
+   *   6. 记 RemotePathRepo 映射
+   *   7. 计算原明文 sha256 → 记 fingerprint（明文 size）
+   *
+   * 失败重试 = 整文件重加密 + 重 PUT（与 REQ-001 §4.2 一致）
+   */
+  private async uploadEncrypted(
+    item: QueueItem,
+    historyId: string
+  ): Promise<{ ok: boolean; status: number; bytes: number; sha256?: string }> {
+    // 1. 加载 master key
+    const mk = await loadMasterKey(item.endpoint.id);
+    if (!mk) {
+      throw new Error('e2e enabled but no master key for endpoint');
+    }
+    const masterKey = mk.masterKey;
+
+    // 2. 读本地文件（依赖注入 fs；MVP 一次性读）
+    const fs = tryLoadFs();
+    if (!fs) {
+      throw new Error('fs 模块不可用');
+    }
+    const stat = fs.statSync(item.filePath);
+    const total = Number(stat?.size ?? 0);
+    const stream = fs.createReadStream(item.filePath);
+    const buf = stream.read?.() ?? new ArrayBuffer(total);
+    const arr = buf instanceof ArrayBuffer ? new Uint8Array(buf) : (buf as Uint8Array);
+    if (arr.byteLength !== total) {
+      throw new Error(`read size mismatch: got ${arr.byteLength}, expected ${total}`);
+    }
+
+    // 3. 计算明文 sha256（记 fingerprint 用）
+    const sha256 = await sha256Hex(arr);
+
+    // 4. 加密
+    let ctBuf: ArrayBuffer;
+    let encRemoteName: string;
+    try {
+      const origName = baseName(item.remotePath);
+      ctBuf = await encryptFile(arr.buffer, origName, arr.byteLength, masterKey);
+      encRemoteName = await encryptFilename(origName, masterKey);
+    } catch (e) {
+      // 加密失败（如 master key 解密错误）→ 抛 E2E_AUTH_ERROR 不外泄
+      if ((e as Error).name === 'E2E_AUTH_ERROR') {
+        throw e;
+      }
+      throw new Error(`e2e encrypt error: ${(e as Error).message}`);
+    }
+
+    // 5. 拼装远端路径：与原 remotePath 共享 parent，basename 改为 encRemoteName
+    const parent = parentOf(item.remotePath);
+    const encRemotePath = (parent ? parent + '/' : '') + encRemoteName;
+
+    // 6. PUT 到远端
+    try { this.emit({ type: 'progress', item, sent: 0, total: ctBuf.byteLength, historyId }); } catch (_e) {}
+    const r = await put(item.endpoint, encRemotePath, new Uint8Array(ctBuf), {
+      progress: (sent, total) => this.emit({ type: 'progress', item, sent, total, historyId }),
+    });
+    try { this.emit({ type: 'progress', item, sent: ctBuf.byteLength, total: ctBuf.byteLength, historyId }); } catch (_e) {}
+
+    if (r.ok) {
+      // 7. 记 RemotePathRepo 映射
+      try {
+        await upsertRemotePath(item.endpoint.id, item.filePath, encRemotePath, parent);
+      } catch (e) {
+        warn('[UploadQueue] failed to upsert remote path', { err: (e as Error).message });
+      }
+    }
+
+    return { ok: r.ok, status: r.status, bytes: arr.byteLength, sha256 };
+  }
+}
+
+/** 工具：取路径中的 basename */
+function baseName(p: string): string {
+  const idx = p.lastIndexOf('/');
+  return idx < 0 ? p : p.slice(idx + 1);
+}
+
+/** 工具：取路径中的 parent（不含末尾 /） */
+function parentOf(p: string): string {
+  const idx = p.lastIndexOf('/');
+  return idx < 0 ? '' : p.slice(0, idx);
+}
+
+/** 工具：fs 动态加载（与 WebDAVClient 的 tryLoadFs 镜像） */
+function tryLoadFs(): any {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('@ohos.file.fs');
+  } catch (_e) {
+    return null;
   }
 }
 

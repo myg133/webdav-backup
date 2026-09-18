@@ -32,6 +32,8 @@ export struct EndpointsPage {
   @State formPass: string = '';
   @State formRoot: string = '/backup';
   @State formEnabled: boolean = true;
+  // REQ-004: 端点 E2E 开关
+  @State formE2eEnabled: boolean = false;
   @State testing: Map<string, { ok: boolean; detail: string }> = new Map();
 
   aboutToAppear(): void {
@@ -92,6 +94,9 @@ export struct EndpointsPage {
       if (ep.passwordFallback) {
         Text('⚠️ 当前使用本地兜底加密（KeyStore 不可用）').fontSize(11).fontColor('#cc8800').padding({ top: 4 });
       }
+      if (ep.e2eEnabled) {
+        Text('🔒 端到端加密已启用').fontSize(11).fontColor('#0a7e2c').padding({ top: 4 });
+      }
 
       Row() {
         Button(this.testing.get(ep.id)?.ok !== undefined ? '测试结果: ' + this.testing.get(ep.id)?.detail : '测试连接')
@@ -127,7 +132,16 @@ export struct EndpointsPage {
           Blank();
           Toggle({ type: ToggleType.Switch, isOn: this.formEnabled })
             .onChange((v) => this.formEnabled = v);
-        }.width('100%').padding({ top: 8, bottom: 12 });
+        }.width('100%').padding({ top: 8, bottom: 4 });
+
+        Row() {
+          Text('端到端加密').fontSize(14);
+          Blank();
+          Toggle({ type: ToggleType.Switch, isOn: this.formE2eEnabled })
+            .onChange((v) => this.formE2eEnabled = v);
+        }.width('100%').padding({ top: 4, bottom: 4 });
+        Text('启用 E2E 后上传文件会加密；主密码在启动时设置（主密码丢失 = 数据不可恢复）。')
+          .fontSize(11).fontColor('#cc8800').padding({ bottom: 12 });
 
         Row() {
           Button('取消').onClick(() => this.closeForm()).backgroundColor('#999999');
@@ -148,6 +162,7 @@ export struct EndpointsPage {
     this.formPass = '';
     this.formRoot = '/backup';
     this.formEnabled = true;
+    this.formE2eEnabled = false;
     this.showForm = true;
   }
 
@@ -159,6 +174,7 @@ export struct EndpointsPage {
     this.formPass = revealPassword(ep);
     this.formRoot = ep.rootPath;
     this.formEnabled = ep.enabled;
+    this.formE2eEnabled = ep.e2eEnabled;
     this.showForm = true;
   }
 
@@ -181,6 +197,7 @@ export struct EndpointsPage {
             username: this.formUser,
             rootPath: this.formRoot,
             enabled: this.formEnabled,
+            e2eEnabled: this.formE2eEnabled,
           },
           this.formPass || undefined
         );
@@ -196,6 +213,7 @@ export struct EndpointsPage {
           password: this.formPass,
           rootPath: this.formRoot,
           enabled: this.formEnabled,
+          e2eEnabled: this.formE2eEnabled,
         };
         await createEndpoint(input);
       }

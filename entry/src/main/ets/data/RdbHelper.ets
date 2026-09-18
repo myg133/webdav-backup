@@ -29,6 +29,7 @@ const SCHEMA_SQL: string[] = [
     password_fallback INTEGER NOT NULL DEFAULT 0,
     root_path TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
+    e2e_enabled INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS backup_tasks (
@@ -74,6 +75,24 @@ const SCHEMA_SQL: string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_hist_task ON history (task_id)`,
   `CREATE INDEX IF NOT EXISTS idx_hist_status ON history (status)`,
+
+  // REQ-004 端到端加密新增表
+  `CREATE TABLE IF NOT EXISTS master_key_entries (
+    endpoint_id TEXT PRIMARY KEY,
+    master_key_cipher TEXT NOT NULL,
+    master_key_fallback INTEGER NOT NULL DEFAULT 0,
+    salt TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS remote_paths (
+    endpoint_id TEXT NOT NULL,
+    local_path TEXT NOT NULL,
+    remote_path TEXT NOT NULL,
+    parent_remote_path TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (endpoint_id, local_path)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_rp_endpoint ON remote_paths (endpoint_id)`,
 ];
 
 /**

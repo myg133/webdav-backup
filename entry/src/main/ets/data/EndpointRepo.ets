@@ -18,6 +18,8 @@ export interface Endpoint {
   passwordFallback: boolean;
   rootPath: string;
   enabled: boolean;
+  /** REQ-004: 端到端加密开关（明文存盘） */
+  e2eEnabled: boolean;
   createdAt: number;
 }
 
@@ -29,6 +31,7 @@ export interface NewEndpointInput {
   password: string; // 明文；调用方传入；本仓库内部加密落盘
   rootPath: string;
   enabled?: boolean;
+  e2eEnabled?: boolean;
 }
 
 function uuid(): string {
@@ -74,11 +77,12 @@ export async function createEndpoint(input: NewEndpointInput): Promise<Endpoint>
     passwordFallback: cipher.fallback,
     rootPath: input.rootPath,
     enabled: input.enabled ?? true,
+    e2eEnabled: input.e2eEnabled ?? false,
     createdAt: now,
   };
   await s.executeSql(
-    `INSERT INTO endpoints (id, name, url, username, password_cipher, password_fallback, root_path, enabled, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO endpoints (id, name, url, username, password_cipher, password_fallback, root_path, enabled, e2e_enabled, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       ep.id,
       ep.name,
@@ -88,6 +92,7 @@ export async function createEndpoint(input: NewEndpointInput): Promise<Endpoint>
       ep.passwordFallback ? 1 : 0,
       ep.rootPath,
       ep.enabled ? 1 : 0,
+      ep.e2eEnabled ? 1 : 0,
       ep.createdAt,
     ]
   );
@@ -104,7 +109,7 @@ export async function updateEndpoint(ep: Endpoint, newPassword?: string): Promis
     fallback = c.fallback;
   }
   await s.executeSql(
-    `UPDATE endpoints SET name=?, url=?, username=?, password_cipher=?, password_fallback=?, root_path=?, enabled=? WHERE id=?`,
+    `UPDATE endpoints SET name=?, url=?, username=?, password_cipher=?, password_fallback=?, root_path=?, enabled=?, e2e_enabled=? WHERE id=?`,
     [
       ep.name,
       ep.url,
@@ -113,6 +118,7 @@ export async function updateEndpoint(ep: Endpoint, newPassword?: string): Promis
       fallback ? 1 : 0,
       ep.rootPath,
       ep.enabled ? 1 : 0,
+      ep.e2eEnabled ? 1 : 0,
       ep.id,
     ]
   );
@@ -149,6 +155,7 @@ function rsToEndpoint(rs: any): Endpoint {
     passwordFallback: Number(rs.getLong?.('password_fallback') ?? rs.getValue?.('password_fallback') ?? 0) === 1,
     rootPath: String(rs.getString?.('root_path') ?? rs.getValue?.('root_path')),
     enabled: Number(rs.getLong?.('enabled') ?? rs.getValue?.('enabled') ?? 0) === 1,
+    e2eEnabled: Number(rs.getLong?.('e2e_enabled') ?? rs.getValue?.('e2e_enabled') ?? 0) === 1,
     createdAt: Number(rs.getLong?.('created_at') ?? rs.getValue?.('created_at') ?? 0),
   };
 }
