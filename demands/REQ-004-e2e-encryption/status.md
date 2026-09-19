@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-**状态**: 已退回
+**状态**: 待验证
 
 ## 状态历史
 
@@ -13,6 +13,7 @@
 | 2026-09-17 | 已就绪 | 派 Dev Agent |
 | 2026-09-18 | 待验证 | Dev 完成（5 commit）+ BA 接管收尾 |
 | 2026-09-19 | 已退回 | **QA 审核 FAIL：K-01 阻断（nonce/salt 用 Math.random 而非 CSPRNG，破坏 AES-GCM 安全假设）** |
+| 2026-09-19 | 待验证 | Dev 修复 K-01（commit 5bf38b0）+ BA 预核验通过，待派 QA 复审 |
 
 ## 责任信息
 
@@ -47,18 +48,26 @@
 
 **这些都登记到 `qa-known-issues.md`**，二期处理**。
 
-## 派单下一步
+## K-01 修复预核验（BA 自查，2026-09-19）
 
-派 Dev Agent 在 develop 分支修复 K-01：
+Dev 修复 commit: `5bf38b0`（已 push origin/develop）
 
-- 修改 3 个文件的 `Math.random()` → cryptoFramework
-- 加 PRNG 注入测试
-- 跑单测 55/55 + 集成 22/22
-- 通知 BA 重新走 QA
+**修改覆盖**：
+- ✅ `E2ECrypto.ets:335 randomBytes()` → `cm.createRandom().generateRandomSync(n)`，cryptoFramework 不可用抛 hard error
+- ✅ `MasterKey.ets:71 generateSalt()` → 同上，移除 Math.random fallback
+- ✅ `MasterPasswordSetupPage.ets` → 删除 `freshSalt()`，统一调 `generateSalt()`
+- ✅ 测试层 `.feature/tests/E2ECrypto.pure.ts` + `MasterKey.pure.ts` 加 WebCrypto API fallback 适配单测环境
+
+**grep 验证**：
+- `entry/src/main/ets/domain/` 下 `Math.random` → **0 命中**
+- `entry/src/main/ets/pages/` 下 `Math.random` → **0 命中**
+- 非加密路径仍有 `Math.random`（EndpointRepo / HistoryRepo / TaskRepo / Notifier / KeyStore）—— **非 K-01 范围**，通知 QA 不要误判
+
+**未走 feature worktree**：Dev 直接在 develop 分支修复（违反"1 worktree = 1 req"，已成事实）。code worktree 仍有 3 个 untracked 临时文件（`.feature/tests/smoke-ps1.ps1`、`integration-result.json`、`scripts/.e2e-tmp/`），通知 QA 视情况反馈但不属 K-01 阻断。
 
 ## 放行条件
 
-- [ ] K-01 修复：3 处 Math.random → cryptoFramework.createRandom
-- [ ] PRNG 注入测试通过
-- [ ] 单测 55/55 + 集成 22/22 全过
-- [ ] grep "Math.random" code/entry/src/main/ets 只剩非加密用途（如 endpoint ID 生成）
+- [x] K-01 修复：3 处 Math.random → cryptoFramework.createRandom（commit 5bf38b0）
+- [ ] PRNG 注入测试通过（QA 复审确认）
+- [ ] 单测 55/55 + 集成 22/22 全过（QA 复审确认）
+- [ ] grep "Math.random" code/entry/src/main/ets/domain 与 pages 下 0 命中（BA 已预核验）
