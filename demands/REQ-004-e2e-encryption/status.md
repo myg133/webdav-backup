@@ -2,16 +2,17 @@
 
 ## 当前状态
 
-**状态**: 待验证
+**状态**: 已退回
 
 ## 状态历史
 
 | 时间 | 状态 | 备注 |
 |------|------|------|
 | 2026-09-17 | 草稿 | 创建需求文档 |
-| 2026-09-17 | 已评审 | 用户评审通过；范围 F1-F8 |
-| 2026-09-17 | 已就绪 | 准备派 Dev Agent |
-| 2026-09-18 | 待验证 | Dev 完成（5 commit）+ BA 接管收尾（清理调试残留 + 写 trace/verification） |
+| 2026-09-17 | 已评审 | 用户评审通过 |
+| 2026-09-17 | 已就绪 | 派 Dev Agent |
+| 2026-09-18 | 待验证 | Dev 完成（5 commit）+ BA 接管收尾 |
+| 2026-09-19 | 已退回 | **QA 审核 FAIL：K-01 阻断（nonce/salt 用 Math.random 而非 CSPRNG，破坏 AES-GCM 安全假设）** |
 
 ## 责任信息
 
@@ -20,56 +21,44 @@
 - 优先级: P1
 - BA Agent Session: ba-Michael-WorkStation-34576-20260916-155002
 
-## Dev Agent 交付摘要
+## 退回原因
 
-### 代码（5 个 commit）
+### K-01 阻断（必须修）
 
-- `106bcdc` F1 密钥派生 PBKDF2
-- `628ee45` F2+F3 AES-256-GCM 文件加密 + 格式
-- `6f8b661` F4-F7 加密流程集成 UploadQueue + Endpoint 配置
-- `65d52c4` F8+F9 错误处理 + UI 页面
-- `7707542` 单测 + 集成测试 T18-T22 加固
+**位置**：
+- `code/entry/src/main/ets/domain/E2ECrypto.ets:335` `randomBytes()` —— 所有 AES-GCM nonce 来源
+- `code/entry/src/main/ets/domain/MasterKey.ets:71` `generateSalt()` fallback
+- `code/entry/src/main/ets/pages/MasterPasswordSetupPage.ets:106` `freshSalt()`
 
-### 关键交付
+**根因**：使用 `Math.random()` 生成加密材料。AES-GCM 安全前提 = nonce 永不重复；`Math.random()` 在 ArkTS runtime 不是 CSPRNG（虽然 V8 实现是 xorshift128+，仍非密码学安全）。
 
-- 7 个新 .ets：E2ECrypto / MasterKey / E2EFileFormat / MasterKeyRepo / RemotePathRepo / MasterPasswordSetupPage / MasterPasswordUnlockPage
-- 修改 5 个 .ets：EndpointRepo（+ e2eEnabled）、UploadQueue（+ uploadEncrypted 分支）、PreviewLoader（解密预览）、EndpointsPage（+ 加密开关 UI）、RdbHelper（+ e2e_enabled 列）
-- 3 个新 .test.ts + 3 个 .pure.ts：E2ECrypto、E2EFileFormat、MasterKey
-- 修改 integration-test.ps1：+ T18-T22 + helper mjs
+**修复要求**：
+1. `randomBytes()` 改为优先调用 `cryptoFramework.createRandom().generateRandom(n)`
+2. cryptoFramework 不可用时 **抛 hard error**，不静默用 Math.random 兜底
+3. `freshSalt()` 删除，统一调用 `MasterKey.generateSalt()`
+4. 加 PRNG 注入回归测试（已存在 `__REQ004_STUB_RANDOM__` hook）
 
-### 测试结果（BA 独立验证）
+### 不修（按"只修阻断"指令）
 
-| 项 | 期望 | 实际 | 结论 |
-|----|------|------|------|
-| 单测（Node）| 8 模块 | 8 模块 55/55 | ✅ |
-| 集成（OpenList）| 22 项 | 22/22 | ✅ |
-| E2E Crypto roundtrip | 字节一致 | SHA-256 match | ✅ |
-| T19 远端文件名不可识别 | base64url + .wde | 验证 | ✅ |
-| T20 篡改 1 字节 | 解密失败 | exit=1 | ✅ |
-| T21 错误主密码 | GCM tag 不匹配 | exit=1 | ✅ |
-| T22 关闭 e2e | 明文上传 | 兼容 REQ-001 | ✅ |
+- K-02 schema migration（升级用户 e2e_enabled 列缺失）
+- K-03 密码强度 UX 提示
+- K-04 PowerShell 5.1 偶发 T18 崩溃
+- AC-10 100MB 性能实测
 
-### Dev 阶段问题与 BA 接管
-
-- Dev 在 272 步 + wall-time 超时，**核心代码完整**但 trace/verification 文档未写
-- BA 接管：
-  - 清理 13 个调试 _test_*.ps1 残留（保留 encrypt-helper.mjs）
-  - 写 traceability.md + verification-report.md
-  - 更新 dispatch/req-registry.md + sprint/current.md
-
-## 下一步
-
-1. 派 QA 子 agent 做 Pre-merge 审核
-2. QA 通过 → 流转"已验证"
-3. push develop 到 origin
+**这些都登记到 `qa-known-issues.md`**，二期处理**。
 
 ## 派单下一步
 
-QA Agent 工作区 = develop 分支（code/ worktree），重点审核：
-- **AC-02/03/08**：远端不可读 + tag 拦截篡改（关键安全点）
-- **AC-04/05**：解密 roundtrip + 错误密码
-- **AC-07**：关闭 e2e 兼容性（不能污染 REQ-001 行为）
-- **AC-09**：DELETE/MKCOL grep 仍然 0 命中
-- **AC-10**：性能真机未跑（标 ⚠️ 非阻断）
-- **F5 不做**：grep 确认无密钥导入/导出代码
-- **不可逆警告**：UI 中 UI 是否显式告诉用户"主密码丢失 = 数据永久丢失"
+派 Dev Agent 在 develop 分支修复 K-01：
+
+- 修改 3 个文件的 `Math.random()` → cryptoFramework
+- 加 PRNG 注入测试
+- 跑单测 55/55 + 集成 22/22
+- 通知 BA 重新走 QA
+
+## 放行条件
+
+- [ ] K-01 修复：3 处 Math.random → cryptoFramework.createRandom
+- [ ] PRNG 注入测试通过
+- [ ] 单测 55/55 + 集成 22/22 全过
+- [ ] grep "Math.random" code/entry/src/main/ets 只剩非加密用途（如 endpoint ID 生成）
