@@ -56,20 +56,16 @@ function requireCrypto(): any {
  */
 export function generateSalt(): Uint8Array {
   const cm = requireCrypto();
-  if (cm && typeof cm.createRandom === 'function') {
-    // cryptoFramework 提供 secure random
-    try {
-      const rnd = cm.createRandom();
-      const bytes = rnd.generateRandom(SALT_BYTES);
-      return new Uint8Array(bytes.data as Uint8Array);
-    } catch (_e) {
-      // 回退
-    }
+  if (!cm?.createRandom) {
+    throw new Error('cryptoFramework unavailable: cannot generate cryptographic random salt (CSPRNG required for PBKDF2)');
   }
-  // 兜底：Math.random（**仅在 cryptoFramework 完全不可用时**）
-  const out = new Uint8Array(SALT_BYTES);
-  for (let i = 0; i < SALT_BYTES; i++) out[i] = Math.floor(Math.random() * 256);
-  return out;
+  try {
+    const rng = cm.createRandom();
+    const result = rng.generateRandomSync(SALT_BYTES);
+    return new Uint8Array(result.data);
+  } catch (e) {
+    throw new Error('cryptoFramework.createRandom failed: ' + (e as Error).message);
+  }
 }
 
 /**

@@ -17,7 +17,7 @@
  */
 
 import { promptAction, router } from '@kit.ArkUI';
-import { deriveMasterKey } from '../domain/MasterKey';
+import { deriveMasterKey, generateSalt } from '../domain/MasterKey';
 import { saveMasterKey, hasAnyMasterKey } from '../data/MasterKeyRepo';
 import { listEndpoints } from '../data/EndpointRepo';
 
@@ -88,7 +88,7 @@ export struct MasterPasswordSetupPage {
       // 当前以"任意端点"为 scope：第一个端点（若有）设主密码；否则占位一个 dummy 端点
       // —— 多端点共享同一主密码的设计概要决策
       const epId = eps.length > 0 ? eps[0].id : '__default__';
-      const masterKey = await deriveMasterKey(this.password, freshSalt());
+      const masterKey = await deriveMasterKey(this.password, generateSalt());
       await saveMasterKey(epId, masterKey);
       promptAction.showToast({ message: '主密码设置成功', duration: 1500 });
       router.replaceUrl({ url: 'pages/IndexPage' });
@@ -98,11 +98,4 @@ export struct MasterPasswordSetupPage {
       this.busy = false;
     }
   }
-}
-
-/** 生成新 salt（首次设置；后续用同一 salt 保证幂等） */
-function freshSalt(): Uint8Array {
-  const out = new Uint8Array(16);
-  for (let i = 0; i < 16; i++) out[i] = Math.floor(Math.random() * 256);
-  return out;
 }

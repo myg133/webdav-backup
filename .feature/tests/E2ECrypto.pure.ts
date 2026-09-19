@@ -60,18 +60,92 @@ export class E2E_AUTH_ERROR extends Error {
 
 /** 12 字节 random nonce */
 export function generateNonce(): Uint8Array {
+  return randomBytes(NONCE_LEN);
+}
+
+/**
+ * 生成 n 字节 CSPRNG 随机数。
+ * - 优先用注入的 mock（_setCryptoForTest）
+ * - 否则用 Node crypto.randomBytes（CSPRNG）
+ * - cryptoFramework 不可用时抛 hard error，**不**降级到 Math.random
+ */
+let _cryptoMod: any = null;
+export function _setCryptoForTest(mod: any): void {
+  _cryptoMod = mod;
+}
+
+export function randomBytes(n: number): Uint8Array {
+  // 测试态注入
+  if (_cryptoMod !== null) {
+    if (!_cryptoMod.createRandom) {
+      throw new Error('cryptoFramework unavailable: cannot generate cryptographic random bytes (CSPRNG required for AES-GCM nonce safety)');
+    }
+    try {
+      const rng = _cryptoMod.createRandom();
+      const result = rng.generateRandomSync(n);
+      return new Uint8Array(result.data);
+    } catch (e) {
+      throw new Error('cryptoFramework.createRandom failed: ' + (e as Error).message);
+    }
+  }
+  // 生产路径：Node crypto（CSPRNG）
   const g: any = globalThis as any;
   if (g.__REQ004_STUB_RANDOM__ && typeof g.__REQ004_STUB_RANDOM__ === 'function') {
-    const arr = g.__REQ004_STUB_RANDOM__(NONCE_LEN);
-    const out = new Uint8Array(NONCE_LEN);
-    for (let i = 0; i < NONCE_LEN; i++) out[i] = arr[i] ?? 0;
+    const arr = g.__REQ004_STUB_RANDOM__(n);
+    const out = new Uint8Array(n);
+    for (let i = 0; i < n; i++) out[i] = arr[i] ?? 0;
     return out;
   }
-  const out = new Uint8Array(NONCE_LEN);
-  for (let i = 0; i < NONCE_LEN; i++) {
-    out[i] = Math.floor(Math.random() * 256);
+  const nodeCrypto = _getNodeCryptoSync();
+  if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+    return new Uint8Array(nodeCrypto.randomBytes(n));
   }
-  return out;
+  throw new Error('cryptoFramework unavailable: cannot generate cryptographic random bytes (CSPRNG required for AES-GCM nonce safety)');
+}
+
+/** 同步获取 CSPRNG（crypto random）。
+ * 优先级:
+ *   1) globalThis.crypto.getRandomValues() — Node 19+ WebCrypto API（CSPRNG，同步）
+ *   2) 直接 require('node:crypto')（CJS main module 上下文）
+ *   3) createRequire 路径（ESM / CJS 混合上下文）
+ */
+function _getNodeCryptoSync(): any {
+  // 1) 优先 WebCrypto API（Node 19+ 同步 API，CSPRNG）
+  try {
+    const g: any = globalThis as any;
+    if (g.crypto && typeof g.crypto.getRandomValues === 'function') {
+      // 返回一个 wrapper，符合下方调用约定（randomBytes(n)）
+      return {
+        randomBytes: (n: number) => {
+          const buf = new Uint8Array(n);
+          g.crypto.getRandomValues(buf);
+          return buf;
+        },
+      };
+    }
+  } catch (_e) { /* fall through */ }
+
+  // 2) 直接 require（CJS main module 上下文）
+  try {
+    const r = require('node:crypto');
+    if (r) return r;
+  } catch (_e) { /* fall through */ }
+
+  // 3) createRequire 路径（ESM / CJS 混合上下文）
+  try {
+    const { createRequire } = require('node:module');
+    const url = (typeof import.meta !== 'undefined' && import.meta.url)
+      ? import.meta.url
+      : (typeof __filename !== 'undefined' && __filename)
+        ? ('file:///' + __filename.replace(/\\/g, '/'))
+        : null;
+    if (url) {
+      const req = createRequire(url);
+      return req('node:crypto');
+    }
+  } catch (_e) { /* fall through */ }
+
+  return null;
 }
 
 export interface DecryptResult {

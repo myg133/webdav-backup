@@ -20,20 +20,77 @@ export const ITERATIONS = 100_000;
 export const SALT_BYTES = 16;
 export const KEY_BYTES = 32;
 
-/** 16 字节随机盐。测试可注入 stubRandom 强制输出固定值。 */
+/** 16 字节随机盐。CSPRNG（Node crypto）—— 不可用时抛 hard error。 */
+let _cryptoMod: any = null;
+export function _setCryptoForTest(mod: any): void {
+  _cryptoMod = mod;
+}
+
 export function generateSalt(): Uint8Array {
-  const out = new Uint8Array(SALT_BYTES);
-  // 测试兼容：先看全局 stub
+  // 测试态注入
+  if (_cryptoMod !== null) {
+    if (!_cryptoMod.createRandom) {
+      throw new Error('cryptoFramework unavailable: cannot generate cryptographic random salt (CSPRNG required for PBKDF2)');
+    }
+    try {
+      const rng = _cryptoMod.createRandom();
+      const result = rng.generateRandomSync(SALT_BYTES);
+      return new Uint8Array(result.data);
+    } catch (e) {
+      throw new Error('cryptoFramework.createRandom failed: ' + (e as Error).message);
+    }
+  }
+  // 生产路径：Node crypto.randomBytes（CSPRNG）
   const g: any = globalThis as any;
   if (g.__REQ004_STUB_RANDOM__ && typeof g.__REQ004_STUB_RANDOM__ === 'function') {
     const arr = g.__REQ004_STUB_RANDOM__(SALT_BYTES);
+    const out = new Uint8Array(SALT_BYTES);
     for (let i = 0; i < SALT_BYTES; i++) out[i] = arr[i] ?? 0;
     return out;
   }
-  for (let i = 0; i < SALT_BYTES; i++) {
-    out[i] = Math.floor(Math.random() * 256);
+  const nodeCrypto = _getNodeCryptoSync();
+  if (nodeCrypto && typeof nodeCrypto.randomBytes === 'function') {
+    return new Uint8Array(nodeCrypto.randomBytes(SALT_BYTES));
   }
-  return out;
+  throw new Error('cryptoFramework unavailable: cannot generate cryptographic random salt (CSPRNG required for PBKDF2)');
+}
+
+function _getNodeCryptoSync(): any {
+  // 1) 优先 WebCrypto API（Node 19+ 同步 API，CSPRNG）
+  try {
+    const g: any = globalThis as any;
+    if (g.crypto && typeof g.crypto.getRandomValues === 'function') {
+      return {
+        randomBytes: (n: number) => {
+          const buf = new Uint8Array(n);
+          g.crypto.getRandomValues(buf);
+          return buf;
+        },
+      };
+    }
+  } catch (_e) { /* fall through */ }
+
+  // 2) 直接 require（CJS main module 上下文）
+  try {
+    const r = require('node:crypto');
+    if (r) return r;
+  } catch (_e) { /* fall through */ }
+
+  // 3) createRequire 路径（ESM / CJS 混合上下文）
+  try {
+    const { createRequire } = require('node:module');
+    const url = (typeof import.meta !== 'undefined' && import.meta.url)
+      ? import.meta.url
+      : (typeof __filename !== 'undefined' && __filename)
+        ? ('file:///' + __filename.replace(/\\/g, '/'))
+        : null;
+    if (url) {
+      const req = createRequire(url);
+      return req('node:crypto');
+    }
+  } catch (_e) { /* fall through */ }
+
+  return null;
 }
 
 /**

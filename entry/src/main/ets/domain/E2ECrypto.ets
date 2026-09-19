@@ -331,9 +331,17 @@ function cryptoMode(cm: any, name: string): any {
 // ──────────────────────────────────────────────────────────────────────
 
 function randomBytes(n: number): Uint8Array {
-  const buf = new Uint8Array(n);
-  for (let i = 0; i < n; i++) buf[i] = Math.floor(Math.random() * 256);
-  return buf;
+  const cm = requireCrypto();
+  if (!cm?.createRandom) {
+    throw new Error('cryptoFramework unavailable: cannot generate cryptographic random bytes (CSPRNG required for AES-GCM nonce safety)');
+  }
+  try {
+    const rng = cm.createRandom();
+    const result = rng.generateRandomSync(n);
+    return new Uint8Array(result.data);
+  } catch (e) {
+    throw new Error('cryptoFramework.createRandom failed: ' + (e as Error).message);
+  }
 }
 
 function sumBytes(parts: Uint8Array[]): number {
